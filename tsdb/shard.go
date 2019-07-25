@@ -152,6 +152,9 @@ type Shard struct {
 	// CompactionDisabled specifies the shard should not schedule compactions.
 	// This option is intended for offline tooling.
 	CompactionDisabled bool
+
+	// Epoch tracker helps serialize writes and deletes that may conflict.
+	epoch *epochTracker
 }
 
 // NewShard returns a new initialized Shard. walPath doesn't apply to the b1 type index
@@ -185,6 +188,7 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 		logger:       logger,
 		baseLogger:   logger,
 		EnableOnOpen: true,
+		epoch:        newEpochTracker(),
 	}
 	return s
 }

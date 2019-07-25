@@ -88,10 +88,6 @@ type Store struct {
 	// This prevents new shards from being created while old ones are being deleted.
 	pendingShardDeletes map[uint64]struct{}
 
-	// Epoch tracker helps serialize writes and deletes that may conflict. It
-	// is stored by shard.
-	epochs map[uint64]*epochTracker
-
 	EngineOptions EngineOptions
 
 	baseLogger *zap.Logger
@@ -112,7 +108,6 @@ func NewStore(path string) *Store {
 		sfiles:              make(map[string]*SeriesFile),
 		indexes:             make(map[string]interface{}),
 		pendingShardDeletes: make(map[uint64]struct{}),
-		epochs:              make(map[uint64]*epochTracker),
 		EngineOptions:       NewEngineOptions(),
 		Logger:              logger,
 		baseLogger:          logger,
@@ -423,7 +418,6 @@ func (s *Store) loadShards() error {
 			continue
 		}
 		s.shards[res.s.id] = res.s
-		s.epochs[res.s.id] = newEpochTracker()
 		if _, ok := s.databases[res.s.database]; !ok {
 			s.databases[res.s.database] = new(databaseState)
 		}
@@ -491,16 +485,6 @@ func (s *Store) Close() error {
 	s.opened = false // Store may now be opened again.
 	s.mu.Unlock()
 	return nil
-}
-
-// epochsForShards returns a copy of the epoch trackers only including what is necessary
-// for the provided shards. Must be called under the lock.
-func (s *Store) epochsForShards(shards []*Shard) map[uint64]*epochTracker {
-	out := make(map[uint64]*epochTracker)
-	for _, sh := range shards {
-		out[sh.id] = s.epochs[sh.id]
-	}
-	return out
 }
 
 // openSeriesFile either returns or creates a series file for the provided
@@ -655,7 +639,6 @@ func (s *Store) CreateShard(database, retentionPolicy string, shardID uint64, en
 	}
 
 	s.shards[shardID] = shard
-	s.epochs[shardID] = newEpochTracker()
 	if _, ok := s.databases[database]; !ok {
 		s.databases[database] = new(databaseState)
 	}
@@ -713,7 +696,6 @@ func (s *Store) DeleteShard(shardID uint64) error {
 		return nil
 	}
 	delete(s.shards, shardID)
-	delete(s.epochs, shardID)
 	s.pendingShardDeletes[shardID] = struct{}{}
 
 	db := sh.Database()
@@ -852,7 +834,6 @@ func (s *Store) DeleteDatabase(name string) error {
 
 	for _, sh := range shards {
 		delete(s.shards, sh.id)
-		delete(s.epochs, sh.id)
 	}
 
 	// Remove database from store list of databases
@@ -927,7 +908,6 @@ func (s *Store) DeleteMeasurement(database, name string) error {
 		return ErrMultipleIndexTypes
 	}
 	shards := s.filterShards(byDatabase(database))
-	epochs := s.epochsForShards(shards)
 	s.mu.RUnlock()
 
 	// Limit to 1 delete for each shard since expanding the measurement into the list
@@ -939,8 +919,7 @@ func (s *Store) DeleteMeasurement(database, name string) error {
 
 		// install our guard and wait for any prior deletes to finish. the
 		// guard ensures future deletes that could conflict wait for us.
-		guard := newGuard(influxql.MinTime, influxql.MaxTime, []string{name}, nil)
-		waiter := epochs[sh.id].WaitDelete(guard)
+		waiter := sh.epoch.WaitDelete(newGuard(influxql.MinTime, influxql.MaxTime, []string{name}, nil))
 		waiter.Wait()
 		defer waiter.Done()
 
@@ -1300,7 +1279,6 @@ func (s *Store) DeleteSeries(database string, sources []influxql.Source, conditi
 		return nil
 	}
 	shards := s.filterShards(byDatabase(database))
-	epochs := s.epochsForShards(shards)
 	s.mu.RUnlock()
 
 	// Limit to 1 delete for each shard since expanding the measurement into the list
@@ -1330,7 +1308,7 @@ func (s *Store) DeleteSeries(database string, sources []influxql.Source, conditi
 
 		// install our guard and wait for any prior deletes to finish. the
 		// guard ensures future deletes that could conflict wait for us.
-		waiter := epochs[sh.id].WaitDelete(newGuard(min, max, names, condition))
+		waiter := sh.epoch.WaitDelete(newGuard(min, max, names, condition))
 		waiter.Wait()
 		defer waiter.Done()
 
@@ -1386,13 +1364,11 @@ func (s *Store) WriteToShard(shardID uint64, points []models.Point) error {
 		return ErrShardNotFound
 	}
 
-	epoch := s.epochs[shardID]
-
 	s.mu.RUnlock()
 
 	// enter the epoch tracker
-	guards, gen := epoch.StartWrite()
-	defer epoch.EndWrite(gen)
+	guards, gen := sh.epoch.StartWrite()
+	defer sh.epoch.EndWrite(gen)
 
 	// wait for any guards before writing the points.
 	for _, guard := range guards {
