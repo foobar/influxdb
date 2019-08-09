@@ -155,6 +155,8 @@ type Shard struct {
 
 	// Epoch tracker helps serialize writes and deletes that may conflict.
 	epoch *epochTracker
+
+	deleteLimiter limiter.Fixed
 }
 
 // NewShard returns a new initialized Shard. walPath doesn't apply to the b1 type index
@@ -189,6 +191,9 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 		baseLogger:   logger,
 		EnableOnOpen: true,
 		epoch:        newEpochTracker(),
+
+		// do not allow concurrent deletes on a shard
+		deleteLimiter: limiter.NewFixed(1),
 	}
 	return s
 }
@@ -740,6 +745,8 @@ func (s *Shard) DeleteSeriesRangeWithPredicate(itr SeriesIterator, predicate fun
 
 // DeleteMeasurement deletes a measurement and all underlying series.
 func (s *Shard) DeleteMeasurement(name []byte) error {
+	s.deleteLimiter.Take()
+	defer s.deleteLimiter.Release()
 	engine, err := s.Engine()
 	if err != nil {
 		return err

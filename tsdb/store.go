@@ -910,13 +910,7 @@ func (s *Store) DeleteMeasurement(database, name string) error {
 	shards := s.filterShards(byDatabase(database))
 	s.mu.RUnlock()
 
-	// Limit to 1 delete for each shard since expanding the measurement into the list
-	// of series keys can be very memory intensive if run concurrently.
-	limit := limiter.NewFixed(1)
-	return s.walkShards(shards, func(sh *Shard) error {
-		limit.Take()
-		defer limit.Release()
-
+	return s.forEachShard(shards, func(sh *Shard) error {
 		// install our guard and wait for any prior deletes to finish. the
 		// guard ensures future deletes that could conflict wait for us.
 		waiter := sh.epoch.WaitDelete(newGuard(influxql.MinTime, influxql.MaxTime, []string{name}, nil))
@@ -953,6 +947,21 @@ func byDatabase(name string) func(sh *Shard) bool {
 	return func(sh *Shard) bool {
 		return sh.database == name
 	}
+}
+
+// forEachShard apply a function to each shard serially. If any of the functions
+// returns an error, the first error is returned.
+func (s *Store) forEachShard(shards []*Shard, fn func(sh *Shard) error) error {
+	var err error
+	for _, sh := range shards {
+		if e := fn(sh); e != nil {
+			if err == nil {
+				err = e
+			}
+		}
+	}
+
+	return err
 }
 
 // walkShards apply a function to each shard in parallel. fn must be safe for
