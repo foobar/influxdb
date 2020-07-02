@@ -14,7 +14,6 @@ import (
 	"github.com/influxdata/influxdb/cluster"
 	"github.com/influxdata/influxdb/monitor"
 	"github.com/influxdata/influxdb/services/admin"
-	"github.com/influxdata/influxdb/services/collectd"
 	"github.com/influxdata/influxdb/services/continuous_querier"
 	"github.com/influxdata/influxdb/services/graphite"
 	"github.com/influxdata/influxdb/services/hh"
@@ -49,10 +48,6 @@ type Config struct {
 	Monitor    monitor.Config    `toml:"monitor"`
 	Subscriber subscriber.Config `toml:"subscriber"`
 	HTTPD      httpd.Config      `toml:"http"`
-	Graphites  []graphite.Config `toml:"graphite"`
-	Collectd   collectd.Config   `toml:"collectd"`
-	OpenTSDB   opentsdb.Config   `toml:"opentsdb"`
-	UDPs       []udp.Config      `toml:"udp"`
 
 	ContinuousQuery continuous_querier.Config `toml:"continuous_queries"`
 	HintedHandoff   hh.Config                 `toml:"hinted-handoff"`
@@ -82,8 +77,6 @@ func NewConfig() *Config {
 	c.Monitor = monitor.NewConfig()
 	c.Subscriber = subscriber.NewConfig()
 	c.HTTPD = httpd.NewConfig()
-	c.Collectd = collectd.NewConfig()
-	c.OpenTSDB = opentsdb.NewConfig()
 
 	c.ContinuousQuery = continuous_querier.NewConfig()
 	c.Retention = retention.NewConfig()

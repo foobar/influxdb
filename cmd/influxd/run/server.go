@@ -15,14 +15,12 @@ import (
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/monitor"
 	"github.com/influxdata/influxdb/services/admin"
-	"github.com/influxdata/influxdb/services/collectd"
 	"github.com/influxdata/influxdb/services/continuous_querier"
 	"github.com/influxdata/influxdb/services/copier"
 	"github.com/influxdata/influxdb/services/graphite"
 	"github.com/influxdata/influxdb/services/hh"
 	"github.com/influxdata/influxdb/services/httpd"
 	"github.com/influxdata/influxdb/services/meta"
-	"github.com/influxdata/influxdb/services/opentsdb"
 	"github.com/influxdata/influxdb/services/precreator"
 	"github.com/influxdata/influxdb/services/retention"
 	"github.com/influxdata/influxdb/services/snapshotter"
@@ -292,16 +290,6 @@ func (s *Server) appendHTTPDService(c httpd.Config) {
 		}
 	}
 
-	s.Services = append(s.Services, srv)
-}
-
-func (s *Server) appendCollectdService(c collectd.Config) {
-	if !c.Enabled {
-		return
-	}
-	srv := collectd.NewService(c)
-	srv.MetaClient = s.MetaClient
-	srv.PointsWriter = s.PointsWriter
 	s.Services = append(s.Services, srv)
 }
 
