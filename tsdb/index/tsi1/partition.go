@@ -212,7 +212,7 @@ func (p *Partition) Open() error {
 			files = append(files, f)
 		}
 	}
-	fs, err := NewFileSet(p.levels, p.sfile, files)
+	fs, err := NewFileSet(p.sfile, files)
 	if err != nil {
 		return err
 	}
@@ -453,7 +453,7 @@ func (p *Partition) RetainFileSet() (*FileSet, error) {
 }
 
 func (p *Partition) retainFileSet() *FileSet {
-	fs := p.fileSet
+	fs := p.fileSet.Clone()
 	fs.Retain()
 	return fs
 }
